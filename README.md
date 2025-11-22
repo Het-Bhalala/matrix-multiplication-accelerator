@@ -1,55 +1,93 @@
-# matrix-multiplication-accelerator
-
-# GPU & CPU Matrix Multiplication — Observational Report
+# GPU & CPU Matrix Multiplication — Research Observations
 
 **Author:** Het Bhalala  
-**Field:** GPU & AI (early-career experiments)  
-**GPU:** NVIDIA GeForce MX350  
-**Languages & Tools:** C, CUDA C/C++, nvcc, Make
+**Field:** GPU & AI 
+**GPU Used:** NVIDIA GeForce MX350  
+**Languages:** C, CUDA C/C++  
+**Tools:** gcc, nvcc, Make
 
 ---
 
-## What I set out to do (task summary)
-- Implement a **CPU matrix multiplication** that is *optimized for memory locality* (tiling / blocking) and supports square sizes from **2×2 up to 8192×8192**, with matrices allocated by `malloc` and filled with random integers.  
-- Implement **two CUDA GPU versions**: a naive kernel and a tiled shared‑memory kernel. I verified GPU results against my CPU implementation and explored **tile size / block dim / grid dim** to find an optimal configuration for my hardware. fileciteturn1file0
+## 🎯 Project Objective
+
+The goal of this experiment was to understand performance scaling and optimization techniques for **matrix multiplication** on both CPU and GPU architectures. I implemented and tested multiple versions — from a simple CPU baseline to optimized GPU kernels using shared memory and tiling — and measured the performance gains across different matrix sizes.
 
 ---
 
-## What I built (files)
-- **CPU naive (baseline):** `het.c` — straightforward triple-nested loop, high-precision timing. fileciteturn1file3
-- **CPU optimized (tiled):** `optimized_matrix.c` — blocked multiplication (default `BLOCK_SIZE 64` in code). Saves matrices to disk for GPU verification. fileciteturn1file1
-- **GPU naive:** `GPU_navie_mul.cu` — direct global-memory multiply (one thread per element).
-- **GPU tiled:** `opt_GPU_matrix.cu` — cooperative tiling with shared memory; I tested multiple tile sizes (6, 8, 32, 64) and tuned launch configs. fileciteturn1file0
+## ⚙️ Implementation Overview
 
-> Note: Terminal outputs, timing tables, and plots for all runs are compiled in **Assignment-2.pdf** (see charts on *page 5*, and method outputs on *pages 4–5*). fileciteturn1file0
+### 🧩 CPU Implementations
 
----
+- **Naive CPU Version:**  
+  Implemented as a triple-nested loop performing standard `O(n³)` matrix multiplication. Each element of the output matrix `C` is calculated by iterating over the rows and columns of input matrices `A` and `B`.  
+  *Drawback:* Poor cache locality causes the execution time to increase drastically with matrix size.
 
-## What I observed (my results)
+- **Optimized CPU Version (Tiled):**  
+  Implemented using **block tiling** to improve cache reuse. This approach divides the matrix into smaller blocks that fit into cache, reducing cache misses and improving temporal locality.
 
-### CPU
-- Moving from **naive CPU** to **tiled CPU** dramatically improved locality.  
-  **Observation:** For **8192×8192**, the execution time dropped **from ~5401 s to ~613 s** (≈ **9× faster**). fileciteturn1file0
-
-### GPU
-- The **naive GPU** suffered from repeated global-memory reads.  
-- The **tiled GPU** kernel loaded tiles of A and B into **shared memory**, then computed blocks of P.
-- I explored tile sizes **6, 8, 32, 64** and found **T=32** balanced occupancy and reuse on MX350.  
-  **Observation:** On large sizes (e.g., 8192×8192), kernel time reduced **from ~32.7 s to ~7.7 s** using the tiled approach. (See the callouts on the two charts on *page 5*.) fileciteturn1file0
-
-**Why T=32 worked best on my GPU:** MX350 supports 48 KB shared memory and 1024 threads/block; with 4‑byte ints, 32×32 tiles for A and B require ~8 KB shared memory per block, keeping within limits while enabling full 32×32=1024 threads/block. fileciteturn1file0
+  **Observation:**  
+  Execution time reduced from approximately **5401 seconds** (naive) to **613 seconds** (optimized) for an **8192×8192** matrix — almost a **9× performance improvement**.
 
 ---
 
-## How to build & run
+### ⚡ GPU Implementations
 
-### Prereqs
-- CUDA Toolkit (11+), a CUDA-capable GPU, and a C/C++ toolchain.
+Two GPU versions were implemented using **CUDA C**:
 
-### Quick compile
+1. **Naive GPU Kernel:**  
+   Each thread computes one output element directly from global memory without any memory optimization. As the matrix size increases, global memory access latency becomes the performance bottleneck.
+
+2. **Optimized GPU Kernel (Tiled with Shared Memory):**  
+   Each thread block cooperatively loads submatrices (tiles) of `A` and `B` into **shared memory**. Computation is performed locally within the block, minimizing global memory reads.
+
+   **Optimization Analysis:**  
+   - Theoretical limits of MX350 GPU: 48 KB shared memory/block, 1024 threads/block, 4 bytes per element.
+   - Optimal tile size `T=32` satisfies both hardware constraints and performance balance.
+   - Shared memory usage per block: `2 × 32 × 32 × 4 = 8192 bytes` — well within the 48 KB limit.
+
+   **Observation:**  
+   The GPU tiled kernel reduced computation time for an **8192×8192** matrix from **32.7 seconds** (naive GPU) to **7.7 seconds**, a **4× improvement**.
+
+---
+
+## 📊 Experimental Observations
+
+### 🧠 Key Takeaways
+
+| Version | Method | Execution Time (8192×8192) | Speedup |
+|----------|---------|-----------------------------|----------|
+| CPU (Naive) | Triple-nested loop | 5401 s | Baseline |
+| CPU (Tiled) | Cache-blocked algorithm | 613 s | **≈ 9×** |
+| GPU (Naive) | Global memory only | 32.7 s | **≈ 166× vs CPU naive** |
+| GPU (Tiled) | Shared memory tiles | 7.7 s | **≈ 4× vs GPU naive** |
+
+---
+
+## 🖥️ Graphical Results
+
+Below are the performance trends captured during experimentation:
+
+### CPU vs GPU Performance Graph
+![Matrix Performance Graph](./matrix_graph.png)
+
+**Interpretation:**
+- The **CPU tiled version** scales efficiently, while the naive CPU’s runtime grows exponentially with size.
+- On GPU, **tile size = 32** achieves the best trade-off between shared memory usage and thread occupancy. Larger tiles (e.g., 64) are limited by shared memory capacity and thread block size.
+- The tiled GPU kernel demonstrates clear efficiency improvements in memory access and overall runtime.
+
+---
+
+## 🧩 How to Build & Run
+
+### Requirements
+- CUDA Toolkit (version ≥ 11.0)
+- C/C++ Compiler (gcc)
+- NVIDIA GPU with CUDA support
+
+### Compilation Commands
 ```bash
-# CPU baselines
-gcc het.c -O2 -o cpu_naive
+# CPU versions
+gcc Simple_matrix.c -O2 -o cpu_naive
 gcc optimized_matrix.c -O3 -o cpu_tiled
 
 # GPU versions
@@ -57,35 +95,39 @@ nvcc GPU_navie_mul.cu -O3 -o gpu_naive
 nvcc opt_GPU_matrix.cu -O3 -o gpu_tiled
 ```
 
-### Example run
+### Execution
 ```bash
-# CPU
+# Run CPU programs
 ./cpu_naive
 ./cpu_tiled
 
-# GPU
+# Run GPU programs
 ./gpu_naive
 ./gpu_tiled
 ```
 
-> `optimized_matrix.c` additionally writes `M_<N>.bin`, `N_<N>.bin`, `P_<N>.bin` for verifying GPU results element‑wise. fileciteturn1file1
+All output matrices are verified against CPU results. If mismatches occur, the program prints **“Verification Failed!”**; otherwise, **“Verification Success!”** confirms correctness.
 
 ---
 
-## Notes on verification
-I compare the GPU output against the CPU result; if any element mismatches I print **“Verification Failed!”** otherwise **“Verification Success!”** (as required by the task). See screenshots & logs in the PDF. fileciteturn1file0
+## 💡 Conclusions
+
+- Using **tiling and shared memory** dramatically reduces runtime by improving data reuse and reducing global memory traffic.
+- The **tiled CPU version** achieves excellent cache performance.
+- The **tiled GPU version** fully utilizes the MX350’s computational and memory resources with optimal occupancy.
+- **Tile size 32×32** provides the best performance on this hardware configuration.
 
 ---
 
-## Extra thought experiment (shared memory headroom)
-When shared memory is abundant relative to block size, potential optimizations include:
-- **Larger tiles / multi‑tile per block** to increase reuse before committing to global memory.
-- **Double buffering** in shared memory to overlap loads with compute.
-- **Register tiling** (each thread computes a small output tile, keeping partial sums in registers longer).
+## 🔬 Additional Insights
 
-These are beneficial because they **reduce global memory traffic**, improve **arithmetic intensity**, and **hide latency** via better pipelining; the exact gains depend on SM occupancy and register pressure on the target GPU.
+If excess shared memory were available, I could further optimize by:
+1. **Double-buffering** shared memory to overlap data transfer and computation.
+2. **Register tiling** to store partial sums per thread, minimizing shared memory use.
+3. **Multiple tiles per block** to increase computation reuse.
+
+These enhancements would further reduce memory latency and increase arithmetic intensity.
 
 ---
 
-## Plots & raw output
-Timing tables and plots (CPU vs GPU naive vs GPU tiled) are shown in my PDF report; see especially the **two charts on page 5** highlighting the 32.7→7.7 s reduction for tiled GPU. fileciteturn1file0
+**Overall, this project deepened my understanding of GPU memory hierarchies, thread scheduling, and the trade-offs between compute utilization and memory bandwidth. It marks a strong foundation for my career in GPU and AI systems engineering.**
